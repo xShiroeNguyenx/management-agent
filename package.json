@@ -1,0 +1,88 @@
+{
+  "name": "management-agent",
+  "displayName": "Agent Manager",
+  "description": "Save and switch between multiple agent CLI accounts (Claude, Codex) plus the GitHub account this extension uses.",
+  "version": "0.2.0",
+  "publisher": "shiroenguyen",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/xShiroeNguyenx/management-agent.git"
+  },
+  "bugs": {
+    "url": "https://github.com/xShiroeNguyenx/management-agent/issues"
+  },
+  "homepage": "https://github.com/xShiroeNguyenx/management-agent#readme",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "claude",
+    "codex",
+    "copilot",
+    "github",
+    "account",
+    "agent",
+    "cli"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "agentMgr.showPanel",
+        "title": "Agent Accounts: Manage…",
+        "category": "Agent Manager"
+      },
+      {
+        "command": "agentMgr.save",
+        "title": "Agent Accounts: Save Current As…",
+        "category": "Agent Manager"
+      },
+      {
+        "command": "agentMgr.list",
+        "title": "Agent Accounts: List",
+        "category": "Agent Manager"
+      },
+      {
+        "command": "agentMgr.use",
+        "title": "Agent Accounts: Quick Switch…",
+        "category": "Agent Manager"
+      },
+      {
+        "command": "agentMgr.delete",
+        "title": "Agent Accounts: Delete…",
+        "category": "Agent Manager"
+      },
+      {
+        "command": "agentMgr.githubAccount.switch",
+        "title": "Agent Accounts: Switch GitHub Account…",
+        "category": "Agent Manager"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "package": "vsce package",
+    "publish:vsce": "vsce publish",
+    "publish:ovsx": "ovsx publish"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "@vscode/vsce": "^2.19.0",
+    "eslint": "^8.56.0",
+    "ovsx": "^0.10.0",
+    "typescript": "^5.3.0"
+  }
+}

@@ -1,0 +1,14 @@
+.vscode/**
+.github/**
+src/**
+**/*.ts
+**/*.map
+.gitignore
+.eslintrc.cjs
+tsconfig.json
+PLAN.md
+RELEASING.md
+package-lock.json
+*.vsix
+node_modules/**
+!out/**/*.js

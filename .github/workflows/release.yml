@@ -1,0 +1,68 @@
+name: Release
+
+# Trigger by pushing a version tag, e.g.:
+#   npm version 0.2.1   (bumps package.json + creates the tag)
+#   git push --follow-tags
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write # needed to create the GitHub Release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    # Mapped at job level so the per-step `if` guards can read them (secrets are
+    # not directly accessible in `if`). Publish steps skip when the PAT is unset.
+    env:
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      OVSX_PAT: ${{ secrets.OVSX_PAT }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20 # @vscode/vsce requires Node >= 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Verify tag matches package.json version
+        shell: bash
+        run: |
+          PKG=$(node -p "require('./package.json').version")
+          TAG="${GITHUB_REF_NAME#v}"
+          echo "package.json=$PKG  tag=$TAG"
+          if [ "$PKG" != "$TAG" ]; then
+            echo "::error::Tag v$TAG does not match package.json version $PKG"
+            exit 1
+          fi
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Compile
+        run: npm run compile
+
+      - name: Package VSIX
+        run: npx @vscode/vsce package
+
+      - name: Create GitHub Release (attach .vsix)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release create "$GITHUB_REF_NAME" ./*.vsix \
+            --title "$GITHUB_REF_NAME" \
+            --notes "See [CHANGELOG.md](./CHANGELOG.md) for details."
+
+      - name: Publish to VS Marketplace
+        if: ${{ env.VSCE_PAT != '' }}
+        run: npx @vscode/vsce publish --packagePath ./*.vsix -p "$VSCE_PAT"
+
+      - name: Publish to Open VSX
+        if: ${{ env.OVSX_PAT != '' }}
+        run: npx ovsx publish ./*.vsix -p "$OVSX_PAT"
