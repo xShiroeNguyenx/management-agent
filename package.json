@@ -2,9 +2,10 @@
   "name": "management-agent",
   "displayName": "Agent Manager",
   "description": "Save and switch between multiple agent CLI accounts (Claude, Codex) plus the GitHub account this extension uses.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "shiroenguyen",
   "license": "MIT",
+  "icon": "media/icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/xShiroeNguyenx/management-agent.git"

@@ -4,6 +4,16 @@ All notable changes to **Agent Manager** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-05-31
+
+### Added
+- Extension icon.
+
+### Changed
+- Release readiness: bundled `LICENSE`, `repository`/`bugs`/`homepage` metadata, CI/CD
+  workflows (build + tag-driven publish to VS Marketplace and Open VSX), and a
+  `RELEASING.md` guide. No functional change to the account-switching behavior.
+
 ## [0.2.0] - 2026-05-31
 
 ### Added
@@ -27,5 +37,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Commands: Manage, Save Current As…, List, Quick Switch…, Delete.
 - Automatic backup of live credentials before each switch (last 3 kept per tool).
 
+[0.2.1]: https://github.com/xShiroeNguyenx/management-agent/releases/tag/v0.2.1
 [0.2.0]: https://github.com/xShiroeNguyenx/management-agent/releases/tag/v0.2.0
 [0.1.0]: https://github.com/xShiroeNguyenx/management-agent/releases/tag/v0.1.0
