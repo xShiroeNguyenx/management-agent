@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Claude accounts without an `organizationUuid` (some team/SSO logins) no longer
   show blank in the Agent Accounts panel — identity now displays `sub`/expiry and
   falls back to a refresh-token signature for active detection.
+
 ## [0.2.1] - 2026-05-31
 
 ### Added
