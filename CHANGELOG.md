@@ -4,6 +4,12 @@ All notable changes to **Agent Manager** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-06-02
+
+### Fixed
+- Claude accounts without an `organizationUuid` (some team/SSO logins) no longer
+  show blank in the Agent Accounts panel — identity now displays `sub`/expiry and
+  falls back to a refresh-token signature for active detection.
 ## [0.2.1] - 2026-05-31
 
 ### Added
