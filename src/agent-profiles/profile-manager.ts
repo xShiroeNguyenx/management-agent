@@ -139,6 +139,49 @@ export class AgentProfileManager {
     throw new Error(`Backend "${b.id}" cannot restore snapshots.`);
   }
 
+  // Persist live credentials back into the profile that currently owns them
+  // BEFORE they get overwritten by a switch. Agent CLIs (Claude/Codex) rotate
+  // their OAuth refresh token whenever they refresh the access token, and the
+  // old token is invalidated server-side. The snapshot captured at save time
+  // therefore goes stale: swapping away and back later restores a dead token
+  // and forces a re-login. Re-snapshotting on the way out keeps each profile's
+  // saved token current, so round-trip swaps stay logged in.
+  //
+  // We key off an explicitly tracked per-tool active id (not the credential
+  // signature) because org-less Claude accounts derive their signature from the
+  // rotating refresh token — signature matching would skip exactly the accounts
+  // most exposed to this bug.
+  //
+  // Limitation: if the user logs into a *different* account for this tool
+  // outside the extension, the tracked id still points at the old profile and
+  // this would capture the new account's files into it. The availability guard
+  // below avoids wiping a profile when nothing is logged in, but cannot detect
+  // an out-of-band account change. The extension assumes it owns the swap.
+  private async _syncOutActive(b: AccountBackend): Promise<void> {
+    const activeId = this._store.getActiveIdForTool(b.id);
+    if (!activeId) return;
+    const active = this._store.get(activeId);
+    if (!active || active.tool !== b.id) return;
+    // Nothing logged in → nothing to preserve. Skip so we never clobber a
+    // saved snapshot with an empty capture.
+    if (!(await this._isBackendAvailable(b))) return;
+    try {
+      const snapDir = this._snapshotDir(activeId);
+      const snap = await this._snapshotLive(b, snapDir);
+      if (snap.files.length === 0) return;
+      active.claudeSnapshot = {
+        dir: path.relative(this._context.globalStorageUri.fsPath, snapDir),
+        files: snap.files,
+        capturedAt: snap.capturedAt,
+      };
+      active.updatedAt = Date.now();
+      await this._store.upsert(active);
+      log(`AgentProfile synced live credentials into "${active.name}" before switch (tool=${b.id})`);
+    } catch (err) {
+      log(`AgentProfile sync-out warning: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   // Capture the current live account into a timestamped backup dir, then prune.
   private async _backupCurrent(b: AccountBackend): Promise<void> {
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -175,7 +218,14 @@ export class AgentProfileManager {
         if (snapId && snapId.signature === liveId.signature) matches.push(p.id);
       }
       if (matches.length === 0) continue;
-      result.set(backend.id, stored && matches.includes(stored) ? stored : matches[0]);
+      // Tie-break duplicates by the profile we last activated for this tool,
+      // then the global last-activated, then the first match.
+      const trackedForTool = this._store.getActiveIdForTool(backend.id);
+      const tieBreak =
+        (trackedForTool && matches.includes(trackedForTool) && trackedForTool) ||
+        (stored && matches.includes(stored) && stored) ||
+        matches[0];
+      result.set(backend.id, tieBreak);
     }
     return result;
   }
@@ -264,6 +314,10 @@ export class AgentProfileManager {
     if (!this._store.getActiveId()) {
       await this._store.setActive(id);
     }
+    // The snapshot we just captured matches the live account for this tool, so
+    // this profile now owns the live credentials — track it so the next switch
+    // syncs its rotated token back out instead of restoring a stale one.
+    await this._store.setActiveIdForTool(backend.id, id);
     log(`AgentProfile saved: ${trimmed} (tool=${backend.id}, ${snap.files.length} files)`);
     this._emitter.fire();
     return profile;
@@ -277,9 +331,14 @@ export class AgentProfileManager {
     if (!backend) throw new Error(`No backend registered for tool "${profile.tool}"`);
 
     const snapDir = this._snapshotDir(id);
+    // Preserve the outgoing account's (possibly rotated) live token first. When
+    // the target is already the active profile this captures live into the same
+    // dir we then restore from — a harmless no-op that just refreshes it.
+    await this._syncOutActive(backend);
     await this._backupCurrent(backend);
     const written = await this._restoreSnapshot(backend, snapDir);
     await this._store.setActive(id);
+    await this._store.setActiveIdForTool(backend.id, id);
     log(`AgentProfile activated: ${profile.name} (tool=${backend.id}, restored ${written.length} files)`);
     this._emitter.fire();
     return profile;

@@ -4,6 +4,17 @@ All notable changes to **Agent Manager** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] - 2026-06-03
+
+### Fixed
+- Switching accounts repeatedly no longer logs them out. Agent CLIs rotate their
+  OAuth refresh token on use, so the snapshot captured at save time went stale and
+  the server later rejected it — swapping away and back restored a dead token and
+  forced a re-login (eventually across all accounts). Switching now syncs the live,
+  rotated credentials back into the profile they belong to before overwriting them,
+  keyed off an explicitly tracked per-tool active profile (so org-less Claude
+  accounts, whose signature derives from the rotating token, are covered too).
+
 ## [0.2.2] - 2026-06-02
 
 ### Fixed

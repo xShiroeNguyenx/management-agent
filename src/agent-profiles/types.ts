@@ -15,7 +15,12 @@ export interface AgentProfile {
 
 export interface ProfileStoreShape {
   profiles: AgentProfile[];
+  // Last profile activated overall (kept for back-compat / tie-breaking).
   activeId?: string;
+  // Per-tool active profile id (toolId → profileId). Recorded at restore time
+  // so we can sync the live, possibly token-rotated credentials back into the
+  // owning profile before switching away — independent of credential signature.
+  activeIds?: Record<string, string>;
 }
 
 export const DEFAULT_TOOL_ID = 'claude';

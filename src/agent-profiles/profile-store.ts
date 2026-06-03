@@ -16,7 +16,7 @@ export class AgentProfileStore {
     }
     // Migrate pre-multi-tool profiles: default missing tool to 'claude'.
     const profiles = raw.profiles.map((p) => p.tool ? p : { ...p, tool: DEFAULT_TOOL_ID });
-    return { profiles, activeId: raw.activeId };
+    return { profiles, activeId: raw.activeId, activeIds: raw.activeIds ?? {} };
   }
 
   private async _write(shape: ProfileStoreShape): Promise<void> {
@@ -33,6 +33,20 @@ export class AgentProfileStore {
 
   getActiveId(): string | undefined {
     return this._read().activeId;
+  }
+
+  // The profile whose snapshot is believed to be live for a given tool.
+  getActiveIdForTool(tool: string): string | undefined {
+    return this._read().activeIds?.[tool];
+  }
+
+  async setActiveIdForTool(tool: string, id: string | undefined): Promise<void> {
+    const shape = this._read();
+    const map = { ...(shape.activeIds ?? {}) };
+    if (id) map[tool] = id;
+    else delete map[tool];
+    shape.activeIds = map;
+    await this._write(shape);
   }
 
   getActive(): AgentProfile | undefined {
@@ -56,6 +70,11 @@ export class AgentProfileStore {
     const shape = this._read();
     shape.profiles = shape.profiles.filter((p) => p.id !== id);
     if (shape.activeId === id) shape.activeId = undefined;
+    if (shape.activeIds) {
+      for (const [tool, activeId] of Object.entries(shape.activeIds)) {
+        if (activeId === id) delete shape.activeIds[tool];
+      }
+    }
     await this._write(shape);
   }
 
