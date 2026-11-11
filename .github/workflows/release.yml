@@ -50,19 +50,29 @@ jobs:
       - name: Package VSIX
         run: npx @vscode/vsce package
 
+      # Every step from here on is safe to re-run: a failed publish (e.g. an
+      # expired PAT) is fixed by renewing the secret and pressing "Re-run jobs".
       - name: Create GitHub Release (attach .vsix)
+        id: gh_release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          gh release create "$GITHUB_REF_NAME" ./*.vsix \
-            --title "$GITHUB_REF_NAME" \
-            --notes "See [CHANGELOG.md](./CHANGELOG.md) for details."
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists; replacing the .vsix asset."
+            gh release upload "$GITHUB_REF_NAME" ./*.vsix --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" ./*.vsix \
+              --title "$GITHUB_REF_NAME" \
+              --notes "See [CHANGELOG.md](./CHANGELOG.md) for details."
+          fi
 
       - name: Publish to VS Marketplace
         if: ${{ env.VSCE_PAT != '' }}
-        run: npx @vscode/vsce publish --packagePath ./*.vsix -p "$VSCE_PAT"
+        run: npx @vscode/vsce publish --packagePath ./*.vsix --skip-duplicate -p "$VSCE_PAT"
 
+      # Runs even when the Marketplace publish failed, so one bad token does
+      # not block the other registry.
       - name: Publish to Open VSX
-        if: ${{ env.OVSX_PAT != '' }}
-        run: npx ovsx publish ./*.vsix -p "$OVSX_PAT"
+        if: ${{ !cancelled() && steps.gh_release.outcome == 'success' && env.OVSX_PAT != '' }}
+        run: npx ovsx publish ./*.vsix --skip-duplicate -p "$OVSX_PAT"
