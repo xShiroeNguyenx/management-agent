@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
-import { randomUUID } from 'crypto';
+import * as path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { log } from '../log';
 import { AgentProfileStore } from './profile-store';
 import {
@@ -38,6 +38,13 @@ export interface GitHubState {
   usingDefault: boolean;       // no extension-specific preference set?
   accounts: GitHubAccountView[];
 }
+
+// One quick-pick row for quickPickAndUse — either a file-swap profile ('cli')
+// or one of the GitHub account actions.
+type SwitchItem = vscode.QuickPickItem & {
+  act?: 'cli' | 'github' | 'github-default' | 'github-add';
+  id?: string;
+};
 
 export class AgentProfileManager {
   private readonly _emitter = new vscode.EventEmitter<void>();
@@ -161,7 +168,8 @@ export class AgentProfileManager {
     const activeId = this._store.getActiveIdForTool(b.id);
     if (!activeId) return;
     const active = this._store.get(activeId);
-    if (!active || active.tool !== b.id) return;
+    if (!active) return;
+    if (active.tool !== b.id) return;
     // Nothing logged in → nothing to preserve. Skip so we never clobber a
     // saved snapshot with an empty capture.
     if (!(await this._isBackendAvailable(b))) return;
@@ -209,25 +217,34 @@ export class AgentProfileManager {
     const result = new Map<string, string>();
     const stored = this._store.getActiveId();
     for (const backend of listBackends()) {
-      const liveId = await this._readLiveIdentity(backend);
-      if (!liveId) continue;
-      const matches: string[] = [];
-      for (const p of this._store.list()) {
-        if (p.tool !== backend.id) continue;
-        const snapId = await backend.readIdentity(this._snapshotDir(p.id));
-        if (snapId && snapId.signature === liveId.signature) matches.push(p.id);
-      }
-      if (matches.length === 0) continue;
-      // Tie-break duplicates by the profile we last activated for this tool,
-      // then the global last-activated, then the first match.
-      const trackedForTool = this._store.getActiveIdForTool(backend.id);
-      const tieBreak =
-        (trackedForTool && matches.includes(trackedForTool) && trackedForTool) ||
-        (stored && matches.includes(stored) && stored) ||
-        matches[0];
-      result.set(backend.id, tieBreak);
+      const id = await this._activeIdForBackend(backend, stored);
+      if (id) result.set(backend.id, id);
     }
     return result;
+  }
+
+  // Which saved profile (if any) currently matches this backend's live account.
+  private async _activeIdForBackend(
+    backend: AccountBackend,
+    stored: string | undefined,
+  ): Promise<string | undefined> {
+    const liveId = await this._readLiveIdentity(backend);
+    if (!liveId) return undefined;
+    const matches: string[] = [];
+    for (const p of this._store.list()) {
+      if (p.tool !== backend.id) continue;
+      const snapId = await backend.readIdentity(this._snapshotDir(p.id));
+      if (snapId?.signature === liveId.signature) matches.push(p.id);
+    }
+    if (matches.length === 0) return undefined;
+    // Tie-break duplicates by the profile we last activated for this tool,
+    // then the global last-activated, then the first match.
+    const trackedForTool = this._store.getActiveIdForTool(backend.id);
+    return (
+      (trackedForTool && matches.includes(trackedForTool) && trackedForTool) ||
+      (stored && matches.includes(stored) && stored) ||
+      matches[0]
+    );
   }
 
   async getViews(): Promise<ProfileView[]> {
@@ -292,7 +309,10 @@ export class AgentProfileManager {
     const snapDir = this._snapshotDir(id);
     const snap = await this._snapshotLive(backend, snapDir);
 
-    if (snap.files.length === 0) {
+    // A snapshot holding only settings files (no login) looks saved but can
+    // never switch accounts — refuse it instead of creating a dead profile.
+    const missingLogin = !!backend.sentinelFile && !snap.files.includes(backend.sentinelFile);
+    if (snap.files.length === 0 || missingLogin) {
       await removeSnapshotDir(this._profileDir(id));
       throw new Error(`No ${backend.displayName} credentials found. Log in to ${backend.displayName} first.`);
     }
@@ -331,6 +351,15 @@ export class AgentProfileManager {
     if (!backend) throw new Error(`No backend registered for tool "${profile.tool}"`);
 
     const snapDir = this._snapshotDir(id);
+    // A profile whose snapshot holds no login can't switch anything; restoring
+    // it would only copy settings files and report a success that isn't one.
+    // Checked before sync-out/backup so a refused switch touches nothing.
+    if (backend.sentinelFile && !(await fileExists(path.join(snapDir, backend.sentinelFile)))) {
+      throw new Error(
+        `Profile "${profile.name}" has no saved ${backend.displayName} login. ` +
+        `Log in to that account in ${backend.displayName}, then save the profile again.`
+      );
+    }
     // Preserve the outgoing account's (possibly rotated) live token first. When
     // the target is already the active profile this captures live into the same
     // dir we then restore from — a harmless no-op that just refreshes it.
@@ -391,45 +420,10 @@ export class AgentProfileManager {
       return undefined;
     }
 
-    type SwitchItem = vscode.QuickPickItem & {
-      act?: 'cli' | 'github' | 'github-default' | 'github-add';
-      id?: string;
-    };
-    const items: SwitchItem[] = [];
-
-    if (views.length) {
-      items.push({ label: 'Agent accounts', kind: vscode.QuickPickItemKind.Separator });
-      for (const v of views) {
-        items.push({
-          act: 'cli',
-          id: v.id,
-          label: `${v.active ? '$(check) ' : `${v.toolIcon} `}${v.name}`,
-          description: `${v.toolDisplayName}${v.identity ? ' · ' + v.identity.text : ''}`,
-          detail: v.capturedAt
-            ? `${v.fileCount} file(s) • captured ${new Date(v.capturedAt).toLocaleString()}`
-            : 'No snapshot',
-        });
-      }
-    }
-
-    if (this._github) {
-      items.push({ label: 'GitHub (extension / Copilot)', kind: vscode.QuickPickItemKind.Separator });
-      items.push({
-        act: 'github-default',
-        label: `${github.usingDefault ? '$(check) ' : '$(github) '}Use VS Code default account`,
-        description: github.usingDefault ? 'Current' : undefined,
-      });
-      for (const a of github.accounts) {
-        items.push({
-          act: 'github',
-          id: a.id,
-          label: `${a.active ? '$(check) ' : '$(github) '}${a.label}`,
-          description: a.active ? 'Current' : undefined,
-          detail: 'GitHub account this extension uses for Copilot (global)',
-        });
-      }
-      items.push({ act: 'github-add', label: '$(add) Add another GitHub account…' });
-    }
+    const items: SwitchItem[] = [
+      ...this._cliSwitchItems(views),
+      ...this._githubSwitchItems(github),
+    ];
 
     const activeCliIds = new Set(views.filter((v) => v.active).map((v) => v.id));
     const picked = await vscode.window.showQuickPick(items, {
@@ -438,6 +432,58 @@ export class AgentProfileManager {
     });
     if (!picked) return undefined;
 
+    return this._handlePicked(picked, github, activeCliIds);
+  }
+
+  private _cliSwitchItems(views: ProfileView[]): SwitchItem[] {
+    if (!views.length) return [];
+    const items: SwitchItem[] = [
+      { label: 'Agent accounts', kind: vscode.QuickPickItemKind.Separator },
+    ];
+    for (const v of views) {
+      const prefix = v.active ? '$(check) ' : `${v.toolIcon} `;
+      const identity = v.identity ? ' · ' + v.identity.text : '';
+      items.push({
+        act: 'cli',
+        id: v.id,
+        label: `${prefix}${v.name}`,
+        description: `${v.toolDisplayName}${identity}`,
+        detail: v.capturedAt
+          ? `${v.fileCount} file(s) • captured ${new Date(v.capturedAt).toLocaleString()}`
+          : 'No snapshot',
+      });
+    }
+    return items;
+  }
+
+  private _githubSwitchItems(github: GitHubState): SwitchItem[] {
+    if (!this._github) return [];
+    const items: SwitchItem[] = [
+      { label: 'GitHub (extension / Copilot)', kind: vscode.QuickPickItemKind.Separator },
+      {
+        act: 'github-default',
+        label: `${github.usingDefault ? '$(check) ' : '$(github) '}Use VS Code default account`,
+        description: github.usingDefault ? 'Current' : undefined,
+      },
+    ];
+    for (const a of github.accounts) {
+      items.push({
+        act: 'github',
+        id: a.id,
+        label: `${a.active ? '$(check) ' : '$(github) '}${a.label}`,
+        description: a.active ? 'Current' : undefined,
+        detail: 'GitHub account this extension uses for Copilot (global)',
+      });
+    }
+    items.push({ act: 'github-add', label: '$(add) Add another GitHub account…' });
+    return items;
+  }
+
+  private async _handlePicked(
+    picked: SwitchItem,
+    github: GitHubState,
+    activeCliIds: Set<string>,
+  ): Promise<AgentProfile | undefined> {
     if (picked.act === 'github-default') {
       await this.useGitHubDefault();
       vscode.window.showInformationMessage('Agent Manager will use the VS Code default GitHub account for Copilot.');
@@ -448,10 +494,10 @@ export class AgentProfileManager {
       return undefined;
     }
     if (picked.act === 'github' && picked.id) {
-      if (!github.accounts.find((a) => a.id === picked.id)?.active) {
+      const target = github.accounts.find((a) => a.id === picked.id);
+      if (!target?.active) {
         await this.useGitHubAccount(picked.id);
-        const label = github.accounts.find((a) => a.id === picked.id)?.label ?? 'that account';
-        vscode.window.showInformationMessage(`Agent Manager will use ${label} for GitHub Copilot.`);
+        vscode.window.showInformationMessage(`Agent Manager will use ${target?.label ?? 'that account'} for GitHub Copilot.`);
       }
       return undefined;
     }

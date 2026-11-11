@@ -4,6 +4,42 @@ All notable changes to **Agent Manager** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-11-11
+
+### Added
+- **Auto-Yes** — a status bar button that lets Claude Code approve tool prompts on its
+  own for a limited time. It registers a `PreToolUse` hook in Claude Code's
+  `settings.json` the first time it is turned on, and switches itself off after
+  `agentMgr.autoYes.hours` (default 24). New commands **Toggle Auto-Yes** and
+  **Uninstall Auto-Yes Hook**.
+- **Live Usage** — an opt-in status bar item showing the 5-hour / 7-day limits and the
+  context percentage of the running Claude Code session, fed by a status line bridge.
+  New command **Toggle Live Usage (status line)**.
+
+### Fixed
+- **Switching Claude accounts now works on macOS.** Claude Code keeps its login in the
+  macOS Keychain there, not in `~/.claude/.credentials.json`, so saving a profile
+  captured only settings files and switching changed nothing. Profiles are now saved
+  from and restored to the Keychain, and the write is read back to confirm the swap
+  really happened.
+- Claude Code now shows the right email and organisation after a switch. That
+  information lives in the `oauthAccount` field of `~/.claude.json`, which was left
+  pointing at the previous account; it is now saved with each profile and put back on
+  switch (only that field — the rest of the file is untouched).
+- Saving a profile is refused when no login is found, and switching to a profile that
+  holds no login now fails with a clear message, instead of reporting a success that
+  changed nothing.
+
+### Upgrade notes
+- **macOS:** Claude profiles saved with earlier versions contain no login. Log in to
+  each account and run **Agent Accounts: Save Current As…** again; switching to an
+  old profile now says so instead of silently doing nothing. macOS may ask once for
+  Keychain access.
+- Profiles saved with earlier versions (any OS) still switch the login but carry no
+  account info, so the displayed email stays stale until the profile is saved again.
+- macOS: a login larger than about 2 KB (for example one carrying MCP OAuth tokens)
+  cannot be switched yet, and a custom `CLAUDE_CONFIG_DIR` is not supported.
+
 ## [0.2.3] - 2026-06-03
 
 ### Fixed

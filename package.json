@@ -2,7 +2,7 @@
   "name": "management-agent",
   "displayName": "Agent Manager",
   "description": "Save and switch between multiple agent CLI accounts (Claude, Codex) plus the GitHub account this extension uses.",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "publisher": "shiroenguyen",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -64,8 +64,33 @@
         "command": "agentMgr.githubAccount.switch",
         "title": "Agent Accounts: Switch GitHub Account…",
         "category": "Agent Manager"
+      },
+      {
+        "command": "agentMgr.toggleAutoYes",
+        "title": "Toggle Auto-Yes",
+        "category": "Agent Manager"
+      },
+      {
+        "command": "agentMgr.uninstallAutoYesHook",
+        "title": "Uninstall Auto-Yes Hook",
+        "category": "Agent Manager"
+      },
+      {
+        "command": "agentMgr.toggleLiveUsage",
+        "title": "Toggle Live Usage (status line)",
+        "category": "Agent Manager"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Agent Manager",
+      "properties": {
+        "agentMgr.autoYes.hours": {
+          "type": "number",
+          "default": 24,
+          "description": "Auto-Yes tự tắt sau bao nhiêu giờ khi bật (mặc định 24)."
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",

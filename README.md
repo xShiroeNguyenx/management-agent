@@ -25,7 +25,7 @@ every time. It also lets you pick which GitHub account this extension uses.
 
 | Tool | Where credentials live | How it's swapped |
 |------|------------------------|------------------|
-| Claude | `~/.claude` (`.credentials.json` …) | copy credential files |
+| Claude | `~/.claude` (`.credentials.json` …); macOS: login Keychain | copy credential files; macOS: rewrite the Keychain item |
 | Codex  | `~/.codex/auth.json` | copy credential files |
 | GitHub | VS Code auth (keychain) | sets which signed-in account *this extension* uses (see note) |
 

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { initLogger } from './log';
+import { initLogger, log } from './log';
 import { AgentProfileStore } from './agent-profiles/profile-store';
 import { AgentProfileManager } from './agent-profiles/profile-manager';
 import { AgentProfilePanel } from './agent-profiles/profile-panel';
@@ -7,6 +7,11 @@ import { getBackend, registerBackend } from './agent-profiles/backends/account-b
 import { claudeBackend } from './agent-profiles/backends/claude-backend';
 import { codexBackend } from './agent-profiles/backends/codex-backend';
 import { GitHubAccountService } from './github-account-service';
+import { AutoYesController } from './services/autoYesController';
+import { AutoYesStatusBar } from './ui/autoYesStatusBar';
+import { StatuslineInstaller } from './services/statuslineInstaller';
+import { LiveUsageWatcher } from './services/liveUsageWatcher';
+import { LiveUsageStatusBar } from './ui/liveUsageStatusBar';
 
 registerBackend(claudeBackend);
 registerBackend(codexBackend);
@@ -69,6 +74,45 @@ export async function activate(context: vscode.ExtensionContext) {
   const agentProfileStore = new AgentProfileStore(context);
   const agentProfileManager = new AgentProfileManager(context, agentProfileStore, githubAccountService);
   const agentProfileStatusBar = new AgentProfileStatusBar(agentProfileManager);
+
+  // globalStorage giu cac ban copy ON DINH cua hook/bridge (path khong doi sau
+  // khi update extension). Tao thu muc truoc khi cac controller ghi vao.
+  await vscode.workspace.fs.createDirectory(context.globalStorageUri);
+  const config = () => vscode.workspace.getConfiguration('agentMgr');
+
+  // ----- Auto-Yes: nut status bar bat/tat. PreToolUse hook duoc dang ky vao
+  // settings.json cua Claude Code lan dau bat; cac lan sau chi lat co (file flag).
+  const autoYes = new AutoYesController(context, log);
+  const autoYesBar = new AutoYesStatusBar(autoYes);
+  autoYesBar.start();
+  context.subscriptions.push({ dispose: () => autoYesBar.dispose() });
+  if (autoYes.isHookInstalled()) {
+    void autoYes.refreshHookCopy().catch((e) => log(`[auto-yes] refreshHookCopy failed: ${e}`));
+  }
+
+  // ----- Live Usage (5h/7d limits + context%): doc tu snapshot ma statusline
+  // bridge ghi ra. Opt-in: chi chay khi nguoi dung bat.
+  const liveInstaller = new StatuslineInstaller(context, log);
+  const liveBar = new LiveUsageStatusBar();
+  liveBar.start();
+  context.subscriptions.push({ dispose: () => liveBar.dispose() });
+  let liveWatcher: LiveUsageWatcher | null = null;
+  const startLiveWatcher = () => {
+    if (liveWatcher) return;
+    liveWatcher = new LiveUsageWatcher({ onUpdate: (u) => liveBar.setLiveUsage(u), log });
+    liveWatcher.start();
+  };
+  const stopLiveWatcher = async () => {
+    await liveWatcher?.stop();
+    liveWatcher = null;
+  };
+  if (liveInstaller.isEnabled()) {
+    // Refresh ban bridge on dinh phong khi extension vua duoc update, roi watch.
+    void liveInstaller.refreshBridge().catch((e) => log(`[live] refreshBridge failed: ${e}`));
+    liveBar.setEnabled(true);
+    startLiveWatcher();
+  }
+  context.subscriptions.push({ dispose: () => void stopLiveWatcher() });
 
   context.subscriptions.push(
     agentProfileStatusBar,
@@ -142,6 +186,54 @@ export async function activate(context: vscode.ExtensionContext) {
     // Dedicated GitHub-only picker (global account this extension uses).
     vscode.commands.registerCommand('agentMgr.githubAccount.switch', () => {
       return githubAccountService.pickAccountInteractive();
+    }),
+    vscode.commands.registerCommand('agentMgr.toggleAutoYes', async () => {
+      try {
+        if (autoYes.state().on) {
+          await autoYes.disable();
+          vscode.window.showInformationMessage('Auto-Yes: ĐÃ TẮT.');
+        } else {
+          const hours = config().get<number>('autoYes.hours') ?? 24;
+          const { firstInstall } = await autoYes.enable(hours);
+          const note = firstInstall
+            ? ' Lần đầu: đã đăng ký hook — mở lại phiên Claude Code để có hiệu lực.'
+            : '';
+          vscode.window.showInformationMessage(`Auto-Yes: ĐÃ BẬT ${hours}h.${note}`);
+        }
+        autoYesBar.refresh();
+      } catch (e: any) {
+        vscode.window.showErrorMessage(`Toggle Auto-Yes thất bại: ${e?.message ?? e}`);
+      }
+    }),
+    vscode.commands.registerCommand('agentMgr.uninstallAutoYesHook', async () => {
+      try {
+        await autoYes.uninstallHook();
+        autoYesBar.refresh();
+        vscode.window.showInformationMessage('Auto-Yes: đã gỡ hook khỏi settings.json.');
+      } catch (e: any) {
+        vscode.window.showErrorMessage(`Gỡ Auto-Yes hook thất bại: ${e?.message ?? e}`);
+      }
+    }),
+    vscode.commands.registerCommand('agentMgr.toggleLiveUsage', async () => {
+      try {
+        if (liveInstaller.isEnabled()) {
+          await liveInstaller.disable();
+          await stopLiveWatcher();
+          liveBar.clearLiveUsage();
+          liveBar.setEnabled(false);
+          vscode.window.showInformationMessage('Live Usage: ĐÃ TẮT.');
+        } else {
+          const { backup } = await liveInstaller.enable();
+          liveBar.setEnabled(true);
+          startLiveWatcher();
+          const tail = backup ? ` (backup: ${backup})` : '';
+          vscode.window.showInformationMessage(
+            `Live Usage: ĐÃ BẬT. Mở lại phiên Claude Code để status line nạp lại.${tail}`,
+          );
+        }
+      } catch (e: any) {
+        vscode.window.showErrorMessage(`Toggle Live Usage thất bại: ${e?.message ?? e}`);
+      }
     }),
   );
 }
